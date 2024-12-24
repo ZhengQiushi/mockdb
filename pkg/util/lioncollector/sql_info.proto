@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package pb;
+
+option go_package = "/home/zqs/tidb-8.5.0/pkg/util/lioncollector/pb";
+
+service SQLInfoService {
+  rpc SendSQLInfo (SQLInfoRequest) returns (SQLInfoResponse);
+}
+
+message SQLInfoRequest {
+  string sql_text = 1;
+  int32 txn_id = 2;
+  repeated int32 region_ids = 3;
+}
+
+message SQLInfoResponse {
+  bool success = 1;
+}
