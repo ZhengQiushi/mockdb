@@ -1,0 +1,1 @@
+python -m tests.core.analyze.test_graph
