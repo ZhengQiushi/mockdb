@@ -17,6 +17,7 @@ package distsql
 import (
 	"context"
 	"strconv"
+	"strings"
 	"unsafe"
 
 	"github.com/pingcap/errors"
@@ -96,6 +97,9 @@ func Select(ctx context.Context, dctx *distsqlctx.DistSQLContext, kvReq *kv.Requ
 	label := metrics.LblGeneral
 	if dctx.InRestrictedSQL {
 		label = metrics.LblInternal
+	}
+	if strings.Contains(originalSQL, "benchbase") {
+		logutil.Logger(ctx).Debug("!!!! original_sql: " + originalSQL)
 	}
 
 	// kvReq.MemTracker is used to trace and control memory usage in DistSQL layer;

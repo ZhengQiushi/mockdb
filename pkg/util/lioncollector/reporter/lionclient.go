@@ -1,4 +1,4 @@
-package lioncollector
+package lionreporter
 
 import (
 	"context"
@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	pb "lioncollector/pb" // 替换为你的模块名称和路径
+	pb "github.com/pingcap/tidb/pkg/util/lioncollector/reporter/pb"
 
 	"google.golang.org/grpc"
 )
@@ -15,7 +15,21 @@ import (
 type SQLInfo struct {
 	SQLText   string
 	TxnID     int
+	Keys      []int32
 	RegionIDs []int32
+}
+
+func (info *SQLInfo) AddKey(key int32) {
+	info.Keys = append(info.Keys, key)
+	info.RegionIDs = append(info.RegionIDs, key/1000)
+}
+
+func (info *SQLInfo) SetTxnID(txnId int32) {
+	info.TxnID = int(txnId)
+}
+
+func (info *SQLInfo) SetSQLText(sqlText string) {
+	info.SQLText = sqlText
 }
 
 // Cache is a thread-safe in-memory queue for SQL data.
@@ -68,12 +82,7 @@ func NewCacheReceiver(cache *Cache) *CacheReceiver {
 	}
 }
 
-func (cr *CacheReceiver) RegisterSQLInfo(sqlText string, txnID int, regionIDs []int32) {
-	info := SQLInfo{
-		SQLText:   sqlText,
-		TxnID:     txnID,
-		RegionIDs: regionIDs,
-	}
+func (cr *CacheReceiver) RegisterSQLInfo(info SQLInfo) {
 	cr.cache.WriteToCache(info)
 }
 
@@ -115,6 +124,7 @@ func (rs *RpcSender) SendToRemote(sqlInfos []SQLInfo) {
 		request := &pb.SQLInfoRequest{
 			SqlText:   info.SQLText,
 			TxnId:     int32(info.TxnID),
+			Keys:      info.Keys,
 			RegionIds: info.RegionIDs,
 		}
 
@@ -133,14 +143,14 @@ func (rs *RpcSender) SendToRemote(sqlInfos []SQLInfo) {
 type Collector struct {
 	receiver *CacheReceiver
 	sender   *RpcSender
+	grpcConn *grpc.ClientConn
 }
 
-// Setup method to initialize the gRPC connection and return the collector
-func Setup(grpcAddress string, interval time.Duration, batchSize int) (*Collector, *grpc.ClientConn, error) {
+func (c *Collector) Setup(grpcAddress string, interval time.Duration, batchSize int) error {
 	// Establish the gRPC connection
 	grpcConn, err := grpc.Dial(grpcAddress, grpc.WithInsecure())
 	if err != nil {
-		return nil, nil, err
+		return err
 	}
 
 	cache := NewCache()
@@ -155,14 +165,23 @@ func Setup(grpcAddress string, interval time.Duration, batchSize int) (*Collecto
 	}()
 	log.Printf("Successfully initialized NewCollector: %v\n", grpcAddress)
 
-	collector := &Collector{
-		receiver: receiver,
-		sender:   sender,
-	}
-
-	return collector, grpcConn, nil
+	c.receiver = receiver
+	c.sender = sender
+	c.grpcConn = grpcConn
+	return nil
 }
 
-func (c *Collector) RegisterSQLInfo(sqlText string, txnID int, regionIDs []int32) {
-	c.receiver.RegisterSQLInfo(sqlText, txnID, regionIDs)
+// Setup method to initialize the gRPC connection and return the collector
+func Setup(grpcAddress string, interval time.Duration, batchSize int) (*Collector, error) {
+	collector := &Collector{}
+	err := collector.Setup(grpcAddress, interval, batchSize)
+	return collector, err
+}
+
+func (c *Collector) RegisterSQLInfo(info SQLInfo) {
+	c.receiver.RegisterSQLInfo(info)
+}
+
+func (c *Collector) Close() {
+	c.grpcConn.Close()
 }

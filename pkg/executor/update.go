@@ -34,6 +34,9 @@ import (
 	"github.com/pingcap/tidb/pkg/util/execdetails"
 	"github.com/pingcap/tidb/pkg/util/memory"
 	"github.com/tikv/client-go/v2/txnkv/txnsnapshot"
+
+	lioncollector "github.com/pingcap/tidb/pkg/util/lioncollector/collector"
+	lionreporter "github.com/pingcap/tidb/pkg/util/lioncollector/reporter"
 )
 
 // UpdateExec represents a new update executor.
@@ -274,6 +277,7 @@ func (e *UpdateExec) Next(ctx context.Context, req *chunk.Chunk) error {
 }
 
 func (e *UpdateExec) updateRows(ctx context.Context) (int, error) {
+	lioninfo := lionreporter.SQLInfo{}
 	fields := exec.RetTypes(e.Children(0))
 	colsInfo := plannercore.GetUpdateColumnsInfo(e.tblID2table, e.tblColPosInfos, len(fields))
 	globalRowIdx := 0
@@ -351,7 +355,13 @@ func (e *UpdateExec) updateRows(ctx context.Context) (int, error) {
 			if err := e.exec(ctx, e.Children(0).Schema(), datumRow, newRow, dupKeyCheck); err != nil {
 				return 0, err
 			}
+			// add to struct sql
+			lioninfo.AddKey(int32(e.handles[0].IntValue()))
 		}
+		// send to server
+		// lioninfo.SetTxnID(e.handles[0].IntValue())
+		lioninfo.SetSQLText(e.tblColPosInfos[0].HandleCols.GetCol(0).OrigName)
+		lioncollector.RegisterSQLInfo(lioninfo)
 		totalNumRows += chk.NumRows()
 		chk = chunk.Renew(chk, e.MaxChunkSize())
 	}

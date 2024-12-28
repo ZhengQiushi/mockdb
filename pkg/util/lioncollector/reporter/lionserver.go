@@ -1,11 +1,11 @@
-package lioncollector
+package lionreporter
 
 import (
 	"context"
 	"log"
 	"net"
 
-	pb "lioncollector/pb" // 替换为你的模块名称和路径
+	pb "github.com/pingcap/tidb/pkg/util/lioncollector/reporter/pb"
 
 	"google.golang.org/grpc"
 )

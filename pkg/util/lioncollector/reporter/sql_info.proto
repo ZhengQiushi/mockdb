@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package pb;
 
-option go_package = "/home/zqs/tidb-8.5.0/pkg/util/lioncollector/pb";
+option go_package = "./pb";
 
 service SQLInfoService {
   rpc SendSQLInfo (SQLInfoRequest) returns (SQLInfoResponse);
@@ -11,7 +11,8 @@ service SQLInfoService {
 message SQLInfoRequest {
   string sql_text = 1;
   int32 txn_id = 2;
-  repeated int32 region_ids = 3;
+  repeated int32 keys = 3;
+  repeated int32 region_ids = 4;
 }
 
 message SQLInfoResponse {

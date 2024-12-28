@@ -86,6 +86,8 @@ import (
 	"github.com/tikv/client-go/v2/txnkv/transaction"
 	"go.uber.org/automaxprocs/maxprocs"
 	"go.uber.org/zap"
+
+	lioncollector "github.com/pingcap/tidb/pkg/util/lioncollector/collector"
 )
 
 // Flag Names
@@ -330,6 +332,7 @@ func main() {
 		close(exited)
 	})
 	topsql.SetupTopSQL(svr)
+	lioncollector.Setup()
 	terror.MustNil(svr.Run(dom))
 	<-exited
 	syncLog()
