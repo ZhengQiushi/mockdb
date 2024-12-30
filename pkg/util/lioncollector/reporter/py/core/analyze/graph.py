@@ -4,6 +4,8 @@ from core.analyze.clump import Clump
 import heapq
 from itertools import combinations
 from collections import deque
+import pickle
+
 
 class Graph:
     def __init__(self, weight=10, theta=1, top_hot_threshold=0):
@@ -140,3 +142,22 @@ class Graph:
         for region_pair in combinations(region_ids, 2):
             if region_pair[0] != region_pair[1]:
                 self.add_edge(region_pair[0], region_pair[1], weight)
+
+    def save(self, filename):
+        """
+        将当前Graph对象保存到文件中。
+        :param filename: 保存的文件名
+        """
+        with open(filename, 'wb') as file:
+            pickle.dump(self, file)
+
+    @staticmethod
+    def load(filename):
+        """
+        从文件中加载Graph对象。
+        :param filename: 保存的文件名
+        :return: 加载的Graph对象
+        """
+        with open(filename, 'rb') as file:
+            graph = pickle.load(file)
+        return graph

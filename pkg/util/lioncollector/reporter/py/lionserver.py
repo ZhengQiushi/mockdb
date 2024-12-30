@@ -4,6 +4,8 @@ from concurrent import futures
 import sql_info_pb2
 import sql_info_pb2_grpc
 from core.analyze.graph import Graph  # 导入Graph类
+import threading
+import time
 
 class SQLInfoServicer(sql_info_pb2_grpc.SQLInfoServiceServicer):
     def __init__(self, graph):
@@ -12,6 +14,8 @@ class SQLInfoServicer(sql_info_pb2_grpc.SQLInfoServiceServicer):
         :param graph: Graph对象，用于存储和更新图结构
         """
         self.graph = graph
+        # 启动定时保存任务
+        self.start_auto_save(interval=60)  # 60秒保存一次
 
     def SendSQLInfo(self, request, context):
         """
@@ -24,6 +28,24 @@ class SQLInfoServicer(sql_info_pb2_grpc.SQLInfoServiceServicer):
         self.graph.add_transaction(request.region_ids)
         # 返回成功响应
         return sql_info_pb2.SQLInfoResponse(success=True)
+
+    def start_auto_save(self, interval):
+        """
+        启动定时保存任务。
+        :param interval: 保存间隔时间（秒）
+        """
+        def save_graph_periodically():
+            while True:
+                # 生成文件名，包含当前时间戳
+                filename = f"history/graph_{int(time.time())}.pkl"
+                # 保存Graph对象
+                self.graph.save(filename)
+                logging.info(f"Graph saved to {filename}")
+                # 等待指定间隔时间
+                time.sleep(interval)
+
+        # 启动一个后台线程执行定时保存任务
+        threading.Thread(target=save_graph_periodically, daemon=True).start()
 
 def serve(grpc_address, weight=10, theta=1, top_hot_threshold=0):
     """
@@ -43,7 +65,6 @@ def serve(grpc_address, weight=10, theta=1, top_hot_threshold=0):
     logging.info(f"Server started on {grpc_address}")
     server.start()
     server.wait_for_termination()
-
 
 if __name__ == "__main__":
     # 配置日志

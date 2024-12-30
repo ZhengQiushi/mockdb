@@ -356,12 +356,17 @@ func (e *UpdateExec) updateRows(ctx context.Context) (int, error) {
 				return 0, err
 			}
 			// add to struct sql
-			lioninfo.AddKey(int32(e.handles[0].IntValue()))
+			if len(e.handles) > 0 && e.handles[0].IsInt() {
+				lioninfo.AddKey(int32(e.handles[0].IntValue()))
+			}
+
 		}
 		// send to server
 		// lioninfo.SetTxnID(e.handles[0].IntValue())
-		lioninfo.SetSQLText(e.tblColPosInfos[0].HandleCols.GetCol(0).OrigName)
-		lioncollector.RegisterSQLInfo(lioninfo)
+		if e.tblColPosInfos.Len() > 0 && e.tblColPosInfos[0].HandleCols.NumCols() > 0 {
+			lioninfo.SetSQLText(e.tblColPosInfos[0].HandleCols.GetCol(0).OrigName)
+			lioncollector.RegisterSQLInfo(lioninfo)
+		}
 		totalNumRows += chk.NumRows()
 		chk = chunk.Renew(chk, e.MaxChunkSize())
 	}

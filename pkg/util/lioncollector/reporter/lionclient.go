@@ -189,30 +189,31 @@ func (rs *RpcSender) SendToRemote(sqlInfos []SQLInfo) {
 
 // Collector encapsulates CacheReceiver and RpcSender.
 type Collector struct {
+	cache    *Cache
 	receiver *CacheReceiver
 	sender   *RpcSender
 	grpcConn *grpc.ClientConn
 }
 
 func (c *Collector) Setup(grpcAddress string, interval time.Duration, batchSize int) error {
+
+	c.cache = NewCache()
+	c.receiver = NewCacheReceiver(c.cache)
+
 	grpcConn, err := grpc.Dial(grpcAddress, grpc.WithInsecure())
 	if err != nil {
 		return err
 	}
 
-	cache := NewCache()
-	receiver := NewCacheReceiver(cache)
-	sender := NewRpcSender(cache, grpcConn, grpcAddress)
+	c.sender = NewRpcSender(c.cache, grpcConn, grpcAddress)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
 		defer cancel()
-		sender.Start(ctx, interval, batchSize)
+		c.sender.Start(ctx, interval, batchSize)
 	}()
 	log.Printf("Successfully initialized NewCollector: %v\n", grpcAddress)
 
-	c.receiver = receiver
-	c.sender = sender
 	c.grpcConn = grpcConn
 	return nil
 }
@@ -225,7 +226,9 @@ func Setup(grpcAddress string, interval time.Duration, batchSize int) (*Collecto
 }
 
 func (c *Collector) RegisterSQLInfo(info SQLInfo) {
-	c.receiver.RegisterSQLInfo(info)
+	if c.receiver != nil {
+		c.receiver.RegisterSQLInfo(info)
+	}
 }
 
 func (c *Collector) Close() {
