@@ -7,10 +7,15 @@ class TestRoute(unittest.TestCase):
     def setUp(self):
         self.route = Route()
 
+    # def test_update_region_from_pd(self):
+    #     # 调用 update_region_from_pd
+    #     self.route.update_region_from_pd("http://10.77.110.148:10080/tables/benchbase/usertable/regions")
+    #     self.route.save("history/router.pkl.144")
+
     def test_update_region_from_pd(self):
         # 调用 update_region_from_pd
-        self.route.update_region_from_pd("http://10.77.110.148:10080/tables/benchbase/usertable/regions")
-        self.route.save("history/router.pkl")
+        self.route.update_region_from_pd("http://10.77.70.205:10080/tables/benchbase/usertable/regions")
+        self.route.save("history/router.pkl.205")
 
     # def test_update_region_from_pd_mock(self):
     #     mock_response = {

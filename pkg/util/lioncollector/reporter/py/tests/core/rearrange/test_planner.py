@@ -157,7 +157,7 @@ class TestPlanner(unittest.TestCase):
         # print(hot_clumps) ## 
 
         # 构建文件的路径
-        router_file = os.path.join('history', 'router.pkl')
+        router_file = os.path.join('history', 'router.pkl.205')
         # 加载对象
         self.route = Route.load(router_file)
 
