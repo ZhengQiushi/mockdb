@@ -46,7 +46,7 @@ class Route:
     def update_region_from_pd(self, pd_url: str):
         """
         从 PD 获取 region 信息并更新路由表。
-        :param pd_url: PD 的 URL，例如 "http://10.77.110.148:10080/tables/benchbase/usertable/regions"
+        :param pd_url: PD 的 URL，例如 "http://10.77.70.205:10080/tables/benchbase/usertable/regions"
         """
         # 使用 curl 命令获取数据
         try:

@@ -22,7 +22,7 @@ class TestAdaptor(unittest.TestCase):
         self.route.store_ids = {1, 2, 3, 4}
 
         # 初始化Adaptor对象
-        self.pd_api_url = "http://10.77.110.148:2379"
+        self.pd_api_url = "http://10.77.70.117:2379"
         self.adaptor = Adaptor(self.pd_api_url, self.route, True)
 
         # 模拟SubPlan数据

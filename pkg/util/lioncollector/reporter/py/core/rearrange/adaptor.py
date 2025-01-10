@@ -116,7 +116,7 @@ class Adaptor:
             
             for index, op in enumerate(op_plan.op_str):
                 if(op_plan.op_str_status[index] == True):
-                    print(f"OpPlan {op_plan.subplan_index} - {op_plan.region_id} operator done before, skip: {op}")
+                    print(f"OpPlan {op_plan.subplan_index} - {op_plan.region_id} - {index} operator done before, skip: {op}")
                     continue
                 # 根据operator类型生成对应的命令
                 operator_type = op["operator"]
@@ -138,8 +138,8 @@ class Adaptor:
                     print(f"Unknown operator type: {operator_type}")
                     continue
                 
-                if self.mock:
-                    print(f"Mock request: {command}")
+                if mock:
+                    print(f"Mock request {op_plan.subplan_index} - {op_plan.region_id} - {index} : {command}")
                     continue
                 
                 start_time = time.time()
@@ -150,7 +150,7 @@ class Adaptor:
                     latency = end_time - start_time
 
                     if "Fail" in result.stdout or "500" in result.stdout:
-                        print(f" OpPlan {op_plan.subplan_index} - {op_plan.region_id} operator failed: {result.stdout} retry: {op_plan.retry_count}")
+                        print(f" OpPlan {op_plan.subplan_index} - {op_plan.region_id} - {index} operator {command} failed: {result.stdout} retry: {op_plan.retry_count}")
                         self.handle_error(op_plan, result, region_id, command)
                         # op_plans.append(op_plan)  # 失败的 op_plan 重新加入队列
                     else:
@@ -192,6 +192,7 @@ class Adaptor:
         :param op_plan: 失败的OpPlan对象
         :param region_id: region ID
         :param command: 执行的命令
+        @example curl  -s http://10.77.70.117:2379/pd/api/v1/region/id/25743 | jq
         """
         pd_url = f"{self.pd_api_url}/pd/api/v1/region/id/{region_id}"
         try:
@@ -251,3 +252,50 @@ class Adaptor:
         except Exception as e:
             # 处理其他异常
             print(f"Error checking region peers: {e}")
+
+
+    def set_round_robin(self, mock):
+        """
+        将分区按照 round-robin 方式分散到各个 store。
+        目标 store_ids 从 self.route 中获取。
+        """
+        # 获取所有 store_ids
+        store_ids = list(self.route.get_all_store_ids())
+        if not store_ids:
+            print("No store_ids found in route.")
+            return
+        
+        # 获取所有虚拟区域 ID
+        virtual_region_ids = list(self.route.virtual_region_id_map.keys())
+        num_stores = len(store_ids)
+        
+        op_plans = []
+        
+        for idx, virtual_region_id in enumerate(virtual_region_ids):
+            actual_region_id = self.route.virtual_region_id_map[virtual_region_id]
+            current_leader_store_id = self.route.get_region_primary_store_id(virtual_region_id)
+            
+            # 按 round-robin 分配目标 store_id
+            target_store_id = store_ids[idx % num_stores]
+            
+            # 如果当前 leader 已经是目标 store，则跳过
+            if current_leader_store_id == target_store_id:
+                continue
+            
+            # 获取从节点 Store ID 列表
+            secondary_store_ids = self.route.get_region_secondary_store_id(virtual_region_id)
+            
+            # 生成操作计划
+            op_plan = self.generate_op_plan(
+                actual_region_id,
+                current_leader_store_id,
+                secondary_store_ids,
+                target_store_id,
+                idx  # 使用索引作为 op_index
+            )
+            
+            if not op_plan.is_empty():
+                op_plans.append(op_plan)
+        
+        # 执行操作计划
+        self.do_operator_plan(op_plans, mock)

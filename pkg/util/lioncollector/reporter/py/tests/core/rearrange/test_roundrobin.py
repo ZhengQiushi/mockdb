@@ -13,7 +13,7 @@ from core.rearrange.planner import Planner
 from core.analyze.graph import Graph
 
 
-class TestManual(unittest.TestCase):
+class TestRoundRobin(unittest.TestCase):
 
     def setUp(self):
         # 构建图文件的路径
@@ -28,6 +28,7 @@ class TestManual(unittest.TestCase):
         print(len(hot_clumps)) ## 100
         # print(hot_clumps) ## 
 
+        # 构建文件的路径
         self.route = Route()
         self.route.update_region_from_pd("http://10.77.70.205:10080/tables/benchbase/usertable/regions")
 
@@ -59,12 +60,12 @@ class TestManual(unittest.TestCase):
     #         self.assertEqual(op_plans[i].op_str, expected_op_plans[i].op_str)
 
     def test_do_operator_plan(self):
-        # 生成operator计划
-        op_plans = self.adaptor.generate_op_plans(self.subplans)
+        # # 生成operator计划
+        # op_plans = self.adaptor.generate_op_plans(self.subplans)
 
-        # 执行operator计划
-        self.adaptor.do_operator_plan(op_plans)
-
+        # # 执行operator计划
+        # self.adaptor.do_operator_plan(op_plans)
+        self.adaptor.set_round_robin(False)
 
 
 
