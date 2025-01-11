@@ -47,10 +47,10 @@ class TestManual(unittest.TestCase):
     #     # 验证生成的operator计划
     #     expected_op_plans = [
     #         OpPlan(0, 0),  # 空的OpPlan
-    #         OpPlan(1, 2, [{"operator": "transfer_leader", "region_id": 2, "target_store": 3}]),
+    #         OpPlan(1, 2, [{"operator": "transfer_leader", "region_id": 2, "to_store": 3}]),
     #         OpPlan(2, 3, [
     #             {"operator": "transfer_peer", "region_id": 3, "from_store": 1, "to_store": 4},
-    #             {"operator": "transfer_leader", "region_id": 3, "target_store": 4}
+    #             {"operator": "transfer_leader", "region_id": 3, "to_store": 4}
     #         ])
     #     ]
     #     self.assertEqual(len(op_plans), len(expected_op_plans))
@@ -63,7 +63,8 @@ class TestManual(unittest.TestCase):
         op_plans = self.adaptor.generate_op_plans(self.subplans)
 
         # 执行operator计划
-        self.adaptor.do_operator_plan(op_plans)
+        self.adaptor.do_operator_plan(op_plans, False)
+        # self.adaptor.do_operator_plan(op_plans, True) # Mock
 
 
 

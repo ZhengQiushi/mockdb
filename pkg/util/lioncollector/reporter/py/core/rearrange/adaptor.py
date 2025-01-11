@@ -4,6 +4,9 @@ import subprocess
 from collections import deque
 from core.rearrange.opplan import OpPlan
 import re
+import queue
+from concurrent.futures import ThreadPoolExecutor
+import threading  # 导入 threading 模块以获取线程 ID
 
 class Adaptor:
     def __init__(self, pd_api_url, route, mock=False):
@@ -17,13 +20,23 @@ class Adaptor:
         self.route = route
         self.mock = mock
         self.pd_command_prefix = f"tiup ctl:v8.5.0 pd -u {pd_api_url}"
-        self.retry_queue = deque()  # 重试队列
-        self.MAX_RETRY = 5  # 最大重试次数
-        self.retry_interval = 10
+        self.MAX_RETRY = 10  # 最大重试次数
+        self.retry_interval = 20
+        self.max_threads = 20
+        self.op_plans = queue.Queue()  # 使用线程安全的队列
+        self.atomic_counter = 0  # 原子计数器，用于跟踪未完成的操作计划数量
+        self.counter_lock = threading.Lock()  # 用于保护计数器的锁
 
     def generate_op_plan(self, actual_region_id, primary_store_id, secondary_store_ids, target_store_id, op_index):
         '''
+        生成操作计划。
         
+        :param actual_region_id: 实际的region ID
+        :param primary_store_id: 主节点store ID
+        :param secondary_store_ids: 从节点store ID列表
+        :param target_store_id: 目标store ID
+        :param op_index: 操作索引
+        :return: 生成的OpPlan对象
         '''
         op_plan = OpPlan(op_index, actual_region_id)
         
@@ -36,7 +49,7 @@ class Adaptor:
             op = {
                 "operator": "transfer_leader",
                 "region_id": actual_region_id,
-                "target_store": target_store_id
+                "to_store": target_store_id
             }
             op_plan.add_op(op)
         
@@ -60,11 +73,11 @@ class Adaptor:
                 transfer_leader_op = {
                     "operator": "transfer_leader",
                     "region_id": actual_region_id,
-                    "target_store": target_store_id
+                    "to_store": target_store_id
                 }
                 op_plan.add_op(transfer_leader_op)
         return op_plan
- 
+
     def generate_op_plans(self, subplans):
         """
         将subplan转换为对应的operator命令的HTTP请求描述。
@@ -93,53 +106,52 @@ class Adaptor:
         
         return op_plans
 
-    def do_operator_plan(self, op_plans, mock=False):
+    def process_op_plan(self, op_plan):
         """
-        发送operator计划到PD，并记录和打印每次请求的延迟。
+        处理单个操作计划。
         
-        :param op_plans: 包含所有OpPlan对象的列表
-        :param mock: 如果为True，只打印请求，不实际发送
+        :param op_plan: 要处理的操作计划
         """
-        self.op_plans = deque(op_plans)  # 使用deque进行高效的操作
-        while self.op_plans and len(self.op_plans) > 0:
-            op_plan = self.op_plans.popleft()
-            # 检查重试时间
-            if op_plan.next_retry_time and op_plan.next_retry_time > time.time():
-                time.sleep(max(0, op_plan.next_retry_time - time.time()))
-            # 检查重试次数
-            if op_plan.retry_count >= self.MAX_RETRY:
-                print(f"OpPlan {op_plan.subplan_index} - {op_plan.region_id} 已达到最大重试次数，跳过。")
-                continue
-            if op_plan.is_empty():
-                print(f"No operator for SubPlan index {op_plan.subplan_index} - {op_plan.region_id}")
-                continue
-            
+        thread_id = threading.get_ident()  # 获取当前线程 ID
+        is_done = False
+        # 检查重试时间
+        if op_plan.next_retry_time and op_plan.next_retry_time > time.time():
+            time.sleep(max(0, op_plan.next_retry_time - time.time()))
+        # 检查重试次数
+        if op_plan.retry_count >= self.MAX_RETRY:
+            print(f"[Thread-{thread_id}] OpPlan {op_plan.subplan_index} - {op_plan.region_id} 已达到最大重试次数，跳过。")
+            is_done = True
+        elif op_plan.is_empty():
+            print(f"[Thread-{thread_id}] No operator for SubPlan index {op_plan.subplan_index} - {op_plan.region_id}")
+            is_done = True
+        else: 
             for index, op in enumerate(op_plan.op_str):
-                if(op_plan.op_str_status[index] == True):
-                    print(f"OpPlan {op_plan.subplan_index} - {op_plan.region_id} - {index} operator done before, skip: {op}")
+                if op_plan.op_str_status[index] == True:
+                    print(f"[Thread-{thread_id}] OpPlan {op_plan.subplan_index} - {op_plan.region_id} - {index} operator done before, skip: {op}")
                     continue
                 # 根据operator类型生成对应的命令
                 operator_type = op["operator"]
                 region_id = op["region_id"]
                 if operator_type == "transfer_leader":
-                    target_store = op["target_store"]
-                    command = f"{self.pd_command_prefix} operator add transfer-leader {region_id} {target_store}"
+                    to_store = op["to_store"]
+                    command = f"{self.pd_command_prefix} operator add transfer-leader {region_id} {to_store}"
                 elif operator_type == "transfer_peer":
                     from_store = op["from_store"]
                     to_store = op["to_store"]
                     command = f"{self.pd_command_prefix} operator add transfer-peer {region_id} {from_store} {to_store}"
                 elif operator_type == "add_peer":
-                    target_store = op["target_store"]
-                    command = f"{self.pd_command_prefix} operator add add-peer {region_id} {target_store}"
+                    to_store = op["to_store"]
+                    command = f"{self.pd_command_prefix} operator add add-peer {region_id} {to_store}"
                 elif operator_type == "remove_peer":
-                    target_store = op["target_store"]
-                    command = f"{self.pd_command_prefix} operator add remove-peer {region_id} {target_store}"
+                    to_store = op["to_store"]
+                    command = f"{self.pd_command_prefix} operator add remove-peer {region_id} {to_store}"
                 else:
-                    print(f"Unknown operator type: {operator_type}")
+                    print(f"[Thread-{thread_id}] Unknown operator type: {operator_type}")
                     continue
                 
-                if mock:
-                    print(f"Mock request {op_plan.subplan_index} - {op_plan.region_id} - {index} : {command}")
+                if self.mock:
+                    print(f"[Thread-{thread_id}] Mock request {op_plan.subplan_index} - {op_plan.region_id} - {index} : {command}")
+                    is_done = True
                     continue
                 
                 start_time = time.time()
@@ -150,16 +162,23 @@ class Adaptor:
                     latency = end_time - start_time
 
                     if "Fail" in result.stdout or "500" in result.stdout:
-                        print(f" OpPlan {op_plan.subplan_index} - {op_plan.region_id} - {index} operator {command} failed: {result.stdout} retry: {op_plan.retry_count}")
+                        print(f"[Thread-{thread_id}] OpPlan {op_plan.subplan_index} - {op_plan.region_id} - {index} operator {command} failed: {result.stdout} retry: {op_plan.retry_count}")
                         self.handle_error(op_plan, result, region_id, command)
-                        # op_plans.append(op_plan)  # 失败的 op_plan 重新加入队列
                     else:
                         # if result.returncode == 0:
                         op_plan.mark_op_str_as_success(index)
-                        print(f"OpPlan {op_plan.subplan_index} - {op_plan.region_id} sent operator: {command}, latency: {latency:.2f} seconds, response: {result.stdout}")
+                        print(f"[Thread-{thread_id}] OpPlan {op_plan.subplan_index} - {op_plan.region_id} sent operator: {command}, latency: {latency:.2f} seconds, response: {result.stdout}")
+                        is_done = True
                 except Exception as e:
-                    print(f"Error sending operator: {command}, exception: {e}")
-                    self.op_plans.append(op_plan)  # 发生异常时重新加入队列
+                    print(f"[Thread-{thread_id}] Error sending operator: {command}, exception: {e}")
+                    self.op_plans.put(op_plan)  # 发生异常时重新加入队列
+                    break  # 退出当前操作计划的处理
+            
+        # 操作计划处理完成后，减少计数器
+        if is_done == True:
+            with self.counter_lock:
+                self.atomic_counter -= 1
+                print(f"[Thread-{thread_id}] Done OpPlan {op_plan.subplan_index} - {op_plan.region_id} sent operator: {command} self.atomic_counter: {self.atomic_counter}" )
 
     def handle_error(self, op_plan, result, region_id, command):
         """
@@ -170,20 +189,22 @@ class Adaptor:
         :param region_id: region ID
         :param command: 执行的命令
         """
+        thread_id = threading.get_ident()  # 获取当前线程 ID
         error_msg = result.stderr.lower() + result.stdout.lower()  # 合并 stderr 和 stdout
-        print(f"Debug: Full error message: {error_msg}")  # 打印完整错误信息，方便调试
+        print(f"[Thread-{thread_id}] Debug: Full error message: {error_msg}")  # 打印完整错误信息，方便调试
         pending = re.search(r"region has no voter in store", error_msg)
         # 使用正则表达式匹配错误信息
         if pending and op_plan.retry_count < 1:
-            print(f"Region has no voter in store, retrying OpPlan {op_plan.subplan_index} - {op_plan.region_id} after {self.retry_interval} seconds.")
+            print(f"[Thread-{thread_id}] Region has no voter in store, retrying OpPlan {op_plan.subplan_index} - {op_plan.region_id} after {self.retry_interval} seconds.")
             op_plan.next_retry_time = time.time() + self.retry_interval
             op_plan.retry_count += 1
-            self.op_plans.append(op_plan)
+            self.op_plans.put(op_plan)  # 重新加入队列
         elif pending or re.search(r"no operator step is built", error_msg) or re.search(r"region has no peer in store", error_msg):
-            print(f"No operator step is built for OpPlan {op_plan.subplan_index} - {op_plan.region_id}, checking region peers.")
+            print(f"[Thread-{thread_id}] No operator step is built for OpPlan {op_plan.subplan_index} - {op_plan.region_id}, checking region peers.")
             self.check_region_peers(op_plan, region_id)
         else:
-            print(f"Unknown error for OpPlan {op_plan.subplan_index} - {op_plan.region_id}: {error_msg}")
+            print(f"[Thread-{thread_id}] Unknown error for OpPlan {op_plan.subplan_index} - {op_plan.region_id}: {error_msg}")
+            self.check_region_peers(op_plan, region_id)
 
     def check_region_peers(self, op_plan, region_id):
         """
@@ -191,9 +212,8 @@ class Adaptor:
         
         :param op_plan: 失败的OpPlan对象
         :param region_id: region ID
-        :param command: 执行的命令
-        @example curl  -s http://10.77.70.117:2379/pd/api/v1/region/id/25743 | jq
         """
+        thread_id = threading.get_ident()  # 获取当前线程 ID
         pd_url = f"{self.pd_api_url}/pd/api/v1/region/id/{region_id}"
         try:
             # 使用subprocess.run调用curl命令，以列表形式传递参数
@@ -207,7 +227,7 @@ class Adaptor:
             # 解析curl返回的JSON数据
             region = json.loads(result.stdout)
             
-            print(region)
+            print(f"[Thread-{thread_id}] {region}")
 
             leader = region["leader"]
             peers = region["peers"]
@@ -223,35 +243,35 @@ class Adaptor:
             
             if target_store_id == leader_store_id:
                 # 检查目标store是否已经是leader
-                print(f"Target store {target_store_id} is already the leader, skipping.")
+                print(f"[Thread-{thread_id}] Target store {target_store_id} is already the leader, skipping.")
             elif target_store_id in secondary_store_ids and any(
                     peer["store_id"] == target_store_id and peer.get("role_name") == "Learner" 
                     for peer in peers
                 ):
                 # 检查目标store是否已经存在peer，但仍然是Learner
-                print(f"Target store {target_store_id} is still Learner, pending and retry.")
+                print(f"[Thread-{thread_id}] Target store {target_store_id} is still Learner, pending and retry.")
                 op_plan.next_retry_time = time.time() + self.retry_interval  # 设置重试时间
                 op_plan.retry_count = op_plan.retry_count + 1  # 增加重试次数
-                self.op_plans.append(op_plan)  # 添加到重试队列
+                self.op_plans.put(op_plan)  # 添加到重试队列
             else:
-                print(f"Target store {target_store_id} is not the leader, re-generating op_plan.")
+                print(f"[Thread-{thread_id}] Target store {target_store_id} is not the leader, re-generating op_plan.")
                 
                 # 重新生成op_plan并添加到重试队列
                 new_op_plan = self.generate_op_plan(region_id, leader_store_id, secondary_store_ids, target_store_id, op_plan.subplan_index)
 
                 new_op_plan.next_retry_time = time.time() + self.retry_interval  # 设置重试时间
                 new_op_plan.retry_count = op_plan.retry_count + 1  # 增加重试次数
-                self.op_plans.append(new_op_plan)  # 添加到重试队列
+                self.op_plans.put(new_op_plan)  # 添加到重试队列
         
         except subprocess.CalledProcessError as e:
             # 处理curl命令执行失败的情况
-            print(f"Failed to fetch region info from PD: {e.stderr} cmd: {pd_url}")
+            print(f"[Thread-{thread_id}] Failed to fetch region info from PD: {e.stderr} cmd: {pd_url}")
         except json.JSONDecodeError as e:
             # 处理JSON解析错误
-            print(f"Failed to parse JSON response for region {region_id}: {e}")
+            print(f"[Thread-{thread_id}] Failed to parse JSON response for region {region_id}: {e}")
         except Exception as e:
             # 处理其他异常
-            print(f"Error checking region peers: {e}")
+            print(f"[Thread-{thread_id}] Error checking region peers: {e}")
 
 
     def set_round_robin(self, mock):
@@ -299,3 +319,28 @@ class Adaptor:
         
         # 执行操作计划
         self.do_operator_plan(op_plans, mock)
+
+
+    def do_operator_plan(self, op_plans, mock=False):
+        """
+        发送operator计划到PD，并记录和打印每次请求的延迟。
+        使用多线程并发处理操作计划。
+        
+        :param op_plans: 包含所有OpPlan对象的列表
+        :param mock: 如果为True，只打印请求，不实际发送
+        """
+        self.mock = mock
+        for op_plan in op_plans:
+            self.op_plans.put(op_plan)  # 将操作计划放入线程安全的队列
+        
+        # 初始化原子计数器
+        with self.counter_lock:
+            self.atomic_counter = len(op_plans)
+        
+        with ThreadPoolExecutor(max_workers=self.max_threads) as executor:  # 创建线程池，最大线程数为10
+            while self.atomic_counter > 0:  # 使用原子计数器作为退出条件
+                if not self.op_plans.empty():
+                    op_plan = self.op_plans.get()  # 从队列中获取操作计划
+                    executor.submit(self.process_op_plan, op_plan)  # 提交任务到线程池
+                else:
+                    time.sleep(0.1)  # 如果队列为空，稍作等待

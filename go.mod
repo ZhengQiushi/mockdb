@@ -326,6 +326,8 @@ replace (
 	github.com/pingcap/tidb/pkg/util/lioncollector/reporter => ./pkg/util/lioncollector/reporter
 	github.com/pingcap/tidb/pkg/util/lioncollector/reporter/pb => ./pkg/util/lioncollector/reporter/pb
 
+	github.com/tikv/client-go/v2 => /home/zqs/client-go
+
 	google.golang.org/grpc => google.golang.org/grpc v1.63.2
 	// TODO: `sourcegraph.com/sourcegraph/appdash` has been archived, and the original host has been removed.
 	// Please remove these dependencies.

@@ -8,7 +8,7 @@ class Planner:
         self.route = route  # Route对象，包含路由信息
         self.graph = graph  # Graph对象，包含热点信息
         self.weight = weight  # 主副本的权重
-        self.threshold = threshold  # 负载方差的阈值
+        self.threshold = 2561176  # 负载方差的阈值
         self.batch_size = batch_size  # 每次迁出的clump数量
         self.cache = {}  # 缓存clump的主从store_id和开销
 

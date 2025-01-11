@@ -179,11 +179,11 @@ func (rs *RpcSender) SendToRemote(sqlInfos []SQLInfo) {
 
 		_, err := rs.grpcClient.SendSQLInfo(context.Background(), request)
 		if err != nil {
-			log.Printf("Failed to send SQLInfo: %+v, error: %v\n", info, err)
+			// log.Printf("Failed to send SQLInfo: %+v, error: %v\n", info, err)
 			continue
 		}
 
-		log.Printf("Successfully sent SQLInfo: %+v\n", info)
+		// log.Printf("Successfully sent SQLInfo: %+v\n", info)
 	}
 }
 
