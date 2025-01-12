@@ -8,7 +8,7 @@ class Planner:
         self.route = route  # Route对象，包含路由信息
         self.graph = graph  # Graph对象，包含热点信息
         self.weight = weight  # 主副本的权重
-        self.threshold = 2561176  # 负载方差的阈值
+        self.threshold = 0.0001  # 负载方差的阈值
         self.batch_size = batch_size  # 每次迁出的clump数量
         self.cache = {}  # 缓存clump的主从store_id和开销
 
@@ -51,9 +51,10 @@ class Planner:
             subplans.append(subplan)
             # 更新节点负载
             node_load[target_store_id] += clump.hot
+            clump.target_store_id = target_store_id
 
         store_load = self.evaluate_load_balance(subplans)
-        print("第一阶段load: ", store_load)
+        print("第一阶段load")
 
         # 计算方差并判断是否需要进行负载均衡调整
         loads = list(node_load.values())
@@ -63,14 +64,14 @@ class Planner:
             adjusted_subplans = set()  # 记录已经调整过的SubPlan
             mean_load = sum(loads) / len(loads)  # 计算负载均值
             # 找到所有负载高于均值的节点
-            overloaded_nodes = [store_id for store_id, load in node_load.items() if load > mean_load]
+            overloaded_nodes = [store_id for store_id, load in sorted(node_load.items(), key=lambda x: x[1], reverse=True) if load > mean_load]
 
             round = 0
             while(True):
                 round += 1
                 loads = list(node_load.values())
                 variance = self.calculate_variance(loads)  # 计算负载方差
-                print("调整轮数：", str(round), " 当前方差：", str(variance), " ", str(self.threshold))
+                print("调整轮数：", str(round), " 当前方差：", str(variance), " ", str(self.threshold), " 当前均值：", mean_load)
                 if variance < self.threshold or len(overloaded_nodes) == 0:  # 如果方差小于阈值
                     break
                 # 对每个超载节点进行调整
@@ -92,22 +93,37 @@ class Planner:
                         subplan.target_store_id = min_load_store
                         # 标记为已调整
                         adjusted_subplans.add(subplan)
+                        if node_load[max_load_store] <= mean_load or node_load[min_load_store] >= mean_load: 
+                            break
                     
                     # 如果当前节点负载已经低于均值，将其从超载节点列表中移除
                     if node_load[max_load_store] <= mean_load:
                         overloaded_nodes.remove(max_load_store)
-        
+
+                if len(overloaded_nodes) == 0:
+                    overloaded_nodes = [store_id for store_id, load in sorted(node_load.items(), key=lambda x: x[1], reverse=True) if load > mean_load * 1]
         store_load = self.evaluate_load_balance(subplans)
         print("第二阶段load: ", store_load)
 
         return subplans
 
+    # def calculate_variance(self, loads):
+    #     # 计算负载的方差
+    #     mean = sum(loads) / len(loads)
+    #     variance = sum((x - mean) ** 2 for x in loads) / len(loads)
+    #     return variance
+
     def calculate_variance(self, loads):
-        # 计算负载的方差
-        mean = sum(loads) / len(loads)
-        variance = sum((x - mean) ** 2 for x in loads) / len(loads)
+        # 归一化负载（使用总和作为分母）
+        total_load = sum(loads) if sum(loads) != 0 else 1  # 防止除零错误
+        normalized_loads = [load / total_load for load in loads]
+        
+        # 计算归一化后的负载方差
+        mean = sum(normalized_loads) / len(normalized_loads)
+        variance = sum((x - mean) ** 2 for x in normalized_loads) / len(normalized_loads)
+        print(f"   负载：{loads} \n   归一化负载 : {normalized_loads}, \n   方差: {variance}")
         return variance
-    
+
     def evaluate_load_balance(self, subplans):
         """
         评估当前Planner生成计划的负载均衡性。

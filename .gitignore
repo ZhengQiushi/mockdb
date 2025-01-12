@@ -44,3 +44,4 @@ coverage.dat
 *debug_bin*
 *-39.pyc
 cmd/tidb-server/__debug_bin*
+*.pkl

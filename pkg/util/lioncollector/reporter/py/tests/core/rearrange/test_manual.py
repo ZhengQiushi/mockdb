@@ -17,7 +17,8 @@ class TestManual(unittest.TestCase):
 
     def setUp(self):
         # 构建图文件的路径
-        graph_file = os.path.join('history', 'graph_1735442958.pkl.uniform')
+        # graph_file = os.path.join('history', 'graph_1736582873.pkl.uniform_10region')
+        graph_file = os.path.join('history', 'graph_1736683343.pkl.skew_10region')
         # 加载图对象
         self.graph = Graph.load(graph_file)
         # 设置边权阈值
@@ -63,8 +64,8 @@ class TestManual(unittest.TestCase):
         op_plans = self.adaptor.generate_op_plans(self.subplans)
 
         # 执行operator计划
-        self.adaptor.do_operator_plan(op_plans, False)
-        # self.adaptor.do_operator_plan(op_plans, True) # Mock
+        # self.adaptor.do_operator_plan(op_plans, False)
+        self.adaptor.do_operator_plan(op_plans, True) # Mock
 
 
 

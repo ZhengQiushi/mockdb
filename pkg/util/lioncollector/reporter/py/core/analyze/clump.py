@@ -7,6 +7,7 @@ class Clump:
         """
         self.region_ids = region_ids
         self.hot = hot
+        self.target_store_id = -1
 
     def __repr__(self):
         return f"Clump(region_ids={self.region_ids}, hot={self.hot})"

@@ -113,17 +113,17 @@ class Adaptor:
         :param op_plan: 要处理的操作计划
         """
         thread_id = threading.get_ident()  # 获取当前线程 ID
-        is_done = False
+        is_done = True
         # 检查重试时间
         if op_plan.next_retry_time and op_plan.next_retry_time > time.time():
             time.sleep(max(0, op_plan.next_retry_time - time.time()))
         # 检查重试次数
         if op_plan.retry_count >= self.MAX_RETRY:
             print(f"[Thread-{thread_id}] OpPlan {op_plan.subplan_index} - {op_plan.region_id} 已达到最大重试次数，跳过。")
-            is_done = True
+            pass
         elif op_plan.is_empty():
             print(f"[Thread-{thread_id}] No operator for SubPlan index {op_plan.subplan_index} - {op_plan.region_id}")
-            is_done = True
+            pass
         else: 
             for index, op in enumerate(op_plan.op_str):
                 if op_plan.op_str_status[index] == True:
@@ -151,7 +151,6 @@ class Adaptor:
                 
                 if self.mock:
                     print(f"[Thread-{thread_id}] Mock request {op_plan.subplan_index} - {op_plan.region_id} - {index} : {command}")
-                    is_done = True
                     continue
                 
                 start_time = time.time()
@@ -164,11 +163,12 @@ class Adaptor:
                     if "Fail" in result.stdout or "500" in result.stdout:
                         print(f"[Thread-{thread_id}] OpPlan {op_plan.subplan_index} - {op_plan.region_id} - {index} operator {command} failed: {result.stdout} retry: {op_plan.retry_count}")
                         self.handle_error(op_plan, result, region_id, command)
+                        is_done = False
+                        break
                     else:
                         # if result.returncode == 0:
                         op_plan.mark_op_str_as_success(index)
                         print(f"[Thread-{thread_id}] OpPlan {op_plan.subplan_index} - {op_plan.region_id} sent operator: {command}, latency: {latency:.2f} seconds, response: {result.stdout}")
-                        is_done = True
                 except Exception as e:
                     print(f"[Thread-{thread_id}] Error sending operator: {command}, exception: {e}")
                     self.op_plans.put(op_plan)  # 发生异常时重新加入队列

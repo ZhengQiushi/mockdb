@@ -16,24 +16,24 @@ from core.analyze.graph import Graph
 class TestRoundRobin(unittest.TestCase):
 
     def setUp(self):
-        # 构建图文件的路径
-        graph_file = os.path.join('history', 'graph_1735442958.pkl.uniform')
-        # 加载图对象
-        self.graph = Graph.load(graph_file)
-        # 设置边权阈值
-        self.edge_thresh = 0  # 根据需要调整
+        # # 构建图文件的路径
+        # graph_file = os.path.join('history', 'graph_1735442958.pkl.uniform')
+        # # 加载图对象
+        # self.graph = Graph.load(graph_file)
+        # # 设置边权阈值
+        # self.edge_thresh = 0  # 根据需要调整
 
-        # 获取热点闭包
-        hot_clumps = self.graph.get_hot_region(self.edge_thresh)
-        print(len(hot_clumps)) ## 100
-        # print(hot_clumps) ## 
+        # # 获取热点闭包
+        # hot_clumps = self.graph.get_hot_region(self.edge_thresh)
+        # print(len(hot_clumps)) ## 100
+        # # print(hot_clumps) ## 
 
         # 构建文件的路径
         self.route = Route()
         self.route.update_region_from_pd("http://10.77.70.205:10080/tables/benchbase/usertable/regions")
 
-        planner = Planner(self.route, self.graph, weight=10, threshold=0.1, batch_size=5)
-        self.subplans = planner.generate_subplan(hot_clumps)
+        # planner = Planner(self.route, self.graph, weight=10, threshold=0.1, batch_size=5)
+        # self.subplans = planner.generate_subplan(hot_clumps)
 
         # 初始化Adaptor对象
         self.pd_api_url = "http://10.77.70.117:2379"
