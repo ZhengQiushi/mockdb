@@ -22,7 +22,6 @@ class Route:
         self.virtual_region_id_map = {}
         self.region_primary_store_id = {}   # actual_id -> store_id
         self.region_secondary_store_id = {} # actual_id -> store_id
-        self.store_ids = set()
 
         for virtual_id, region in enumerate(regions):
             actual_id = region["region_id"]
@@ -38,10 +37,6 @@ class Route:
             secondary_store_ids = [peer["store_id"] for peer in peers if peer["id"] != leader["id"]]
             self.region_secondary_store_id[actual_id] = secondary_store_ids
 
-            # 更新所有 store_id
-            self.store_ids.add(leader["store_id"])
-            for peer in peers:
-                self.store_ids.add(peer["store_id"])
 
     def update_region_from_pd(self, pd_url: str):
         """
@@ -64,6 +59,50 @@ class Route:
 
         self.update_region(data)
 
+    def update_stores(self, pd_url: str):
+        """
+        从 PD 获取 region 信息并更新路由表。
+        :param pd_url: PD 的 URL，例如 "http://10.77.70.205:10080/tables/benchbase/usertable/regions"
+        """
+        # 使用 curl 命令获取数据
+        try:
+            result = subprocess.run(
+                ["curl", "-s", pd_url],  # -s 参数表示静默模式
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            data = json.loads(result.stdout)
+        except subprocess.CalledProcessError as e:
+            raise Exception(f"Failed to fetch region info from PD: {e.stderr}")
+        except json.JSONDecodeError as e:
+            raise Exception(f"Failed to parse JSON response: {e}")
+
+        self.update_tikv2store(data)
+
+    def update_tikv2store(self, data: Dict):
+        """
+        解析 JSON 数据并更新 TiKV 到 Store 的映射关系。
+        :param response: 包含 TiKV 和 Store 信息的 JSON 字符串
+        """
+        try:
+            # 遍历 stores 数组
+            for store in data["stores"]:
+                store_id = store["store"]["id"]
+                address = store["store"]["address"]
+                # 更新 store_id
+                self.store_ids.add(store_id)
+
+        except json.JSONDecodeError as e:
+            # JSON 解析错误
+            raise Exception(f"JSON parse error: {e}")
+        except KeyError as e:
+            # JSON 类型错误（例如访问不存在的字段）
+            raise Exception(f"JSON key error: {e}")
+        except Exception as e:
+            # 其他异常
+            raise Exception(f"Error in update_tikv2store: {e}")
+    
     def get_region_primary_store_id(self, virtual_region_id: int) -> int:
         """
         获取某个虚拟 region 的主节点 store_id。

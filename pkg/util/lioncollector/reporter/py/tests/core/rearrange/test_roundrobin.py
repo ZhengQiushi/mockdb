@@ -30,13 +30,14 @@ class TestRoundRobin(unittest.TestCase):
 
         # 构建文件的路径
         self.route = Route()
-        self.route.update_region_from_pd("http://10.77.70.205:10080/tables/benchbase/usertable/regions")
+        self.route.update_region_from_pd("http://10.77.70.210:10080/tables/benchbase/usertable/regions")
+        self.route.update_stores("http://10.77.70.250:12379/pd/api/v1/stores")
 
         # planner = Planner(self.route, self.graph, weight=10, threshold=0.1, batch_size=5)
         # self.subplans = planner.generate_subplan(hot_clumps)
 
         # 初始化Adaptor对象
-        self.pd_api_url = "http://10.77.70.117:2379"
+        self.pd_api_url = "http://10.77.70.250:12379"
         self.adaptor = Adaptor(self.pd_api_url, self.route, False)
 
 
