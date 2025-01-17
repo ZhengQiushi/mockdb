@@ -67,6 +67,7 @@ class TestRoundRobin(unittest.TestCase):
         # # 执行operator计划
         # self.adaptor.do_operator_plan(op_plans)
         self.adaptor.set_round_robin(False)
+        # self.adaptor.set_round_robin(True)
 
 
 

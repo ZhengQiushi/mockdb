@@ -8,6 +8,7 @@ class Route:
         """
         初始化 Route 模块。
         """
+        self.replica_num = 3
         self.store_ids: Set[int] = set()  # 所有 store_id
         self.region_primary_store_id: Dict[int, int] = {}  # 实际 region_id -> 主节点 store_id
         self.region_secondary_store_id: Dict[int, List[int]] = {}  # 实际 region_id -> 从节点 store_id 列表

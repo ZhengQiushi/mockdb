@@ -3,7 +3,7 @@ import json
 from collections import deque
 
 class OpPlan:
-    def __init__(self, subplan_index, region_id, op_str=None):
+    def __init__(self, subplan_index, region_id, op_str=None, follower_only=False):
         """
         初始化OpPlan对象。
         
@@ -16,6 +16,7 @@ class OpPlan:
         self.op_str_status = [False] * len(self.op_str)
         self.next_retry_time = None
         self.retry_count = 0  # 重试次数
+        self.follower_only = follower_only
 
     def mark_op_str_as_success(self, index):
         """

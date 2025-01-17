@@ -116,7 +116,9 @@ class Adaptor:
         is_done = True
         # 检查重试时间
         if op_plan.next_retry_time and op_plan.next_retry_time > time.time():
-            time.sleep(max(0, op_plan.next_retry_time - time.time()))
+            sleep_time = max(0, op_plan.next_retry_time - time.time())
+            print("sleep_time: ", sleep_time)
+            time.sleep(sleep_time)
         # 检查重试次数
         if op_plan.retry_count >= self.MAX_RETRY:
             print(f"[Thread-{thread_id}] OpPlan {op_plan.subplan_index} - {op_plan.region_id} 已达到最大重试次数，跳过。")
@@ -194,17 +196,85 @@ class Adaptor:
         print(f"[Thread-{thread_id}] Debug: Full error message: {error_msg}")  # 打印完整错误信息，方便调试
         pending = re.search(r"region has no voter in store", error_msg)
         # 使用正则表达式匹配错误信息
-        if pending and op_plan.retry_count < 1:
+        if pending and op_plan.retry_count < self.retry_interval / 2:
             print(f"[Thread-{thread_id}] Region has no voter in store, retrying OpPlan {op_plan.subplan_index} - {op_plan.region_id} after {self.retry_interval} seconds.")
             op_plan.next_retry_time = time.time() + self.retry_interval
             op_plan.retry_count += 1
             self.op_plans.put(op_plan)  # 重新加入队列
-        elif pending or re.search(r"no operator step is built", error_msg) or re.search(r"region has no peer in store", error_msg):
-            print(f"[Thread-{thread_id}] No operator step is built for OpPlan {op_plan.subplan_index} - {op_plan.region_id}, checking region peers.")
-            self.check_region_peers(op_plan, region_id)
-        else:
-            print(f"[Thread-{thread_id}] Unknown error for OpPlan {op_plan.subplan_index} - {op_plan.region_id}: {error_msg}")
-            self.check_region_peers(op_plan, region_id)
+        elif op_plan.follower_only == False: # 主
+            if pending or re.search(r"no operator step is built", error_msg) or re.search(r"region has no peer in store", error_msg):
+                print(f"[Thread-{thread_id}] No operator step is built for OpPlan {op_plan.subplan_index} - {op_plan.region_id}, checking region peers.")
+                self.check_region_peers(op_plan, region_id)
+            else:
+                print(f"[Thread-{thread_id}] Unknown error for OpPlan {op_plan.subplan_index} - {op_plan.region_id}: {error_msg}")
+                self.check_region_peers(op_plan, region_id)
+        elif op_plan.follower_only == True: # 从
+            print(f"[Thread-{thread_id}] Follower operation failed, checking region peers for followers.")
+            self.check_region_peers_followers(op_plan, region_id)  # 调用新的方法处理从副本的重试逻辑
+
+
+    def check_region_peers_followers(self, op_plan, region_id):
+        """
+        通过curl命令检查region的peer分布情况，并处理从副本的重试逻辑。
+        
+        :param op_plan: 失败的OpPlan对象
+        :param region_id: region ID
+        """
+        thread_id = threading.get_ident()  # 获取当前线程 ID
+        pd_url = f"{self.pd_api_url}/pd/api/v1/region/id/{region_id}"
+        try:
+            # 使用subprocess.run调用curl命令，以列表形式传递参数
+            result = subprocess.run(
+                ["curl", "-s", pd_url],  # -s 参数表示静默模式
+                capture_output=True,
+                text=True,
+                check=True  # 如果命令返回非零状态码，抛出CalledProcessError
+            )
+            
+            # 解析curl返回的JSON数据
+            region = json.loads(result.stdout)
+            
+            print(f"[Thread-{thread_id}] {region}")
+
+            leader = region["leader"]
+            peers = region["peers"]
+
+            # 获取当前从副本的 store ID 列表
+            current_follower_store_ids = [peer["store_id"] for peer in peers if peer["id"] != leader["id"]]
+            
+            # 获取目标从副本的 store ID 列表
+            target_follower_store_ids = [
+                op["to_store"] for op in op_plan.op_str if op["operator"] == "transfer_peer"
+            ]
+            
+            # 如果当前从副本已经在目标位置，则跳过
+            if set(current_follower_store_ids) == set(target_follower_store_ids):
+                print(f"[Thread-{thread_id}] Target follower stores are already in place, skipping.")
+                return
+            
+            # 重新生成从副本调整的操作计划
+            new_op_plan = self.generate_follower_op_plan(
+                region_id,
+                current_follower_store_ids,
+                target_follower_store_ids,
+                op_plan.subplan_index
+            )
+            
+            if not new_op_plan.is_empty():
+                new_op_plan.next_retry_time = time.time() + self.retry_interval  # 设置重试时间
+                new_op_plan.retry_count = op_plan.retry_count + 1  # 增加重试次数
+                self.op_plans.put(new_op_plan)  # 添加到重试队列
+                print(f"[Thread-{thread_id}] Re-generated follower op_plan for region {region_id} and added to retry queue.")
+        
+        except subprocess.CalledProcessError as e:
+            # 处理curl命令执行失败的情况
+            print(f"[Thread-{thread_id}] Failed to fetch region info from PD: {e.stderr} cmd: {pd_url}")
+        except json.JSONDecodeError as e:
+            # 处理JSON解析错误
+            print(f"[Thread-{thread_id}] Failed to parse JSON response for region {region_id}: {e}")
+        except Exception as e:
+            # 处理其他异常
+            print(f"[Thread-{thread_id}] Error checking region peers for followers: {e}")
 
     def check_region_peers(self, op_plan, region_id):
         """
@@ -278,6 +348,9 @@ class Adaptor:
         """
         将分区按照 round-robin 方式分散到各个 store。
         目标 store_ids 从 self.route 中获取。
+        分为两阶段处理：
+        1. 先进行主副本的切换。
+        2. 再进行从副本的调整。
         """
         # 获取所有 store_ids
         store_ids = list(self.route.get_all_store_ids())
@@ -289,36 +362,106 @@ class Adaptor:
         virtual_region_ids = list(self.route.virtual_region_id_map.keys())
         num_stores = len(store_ids)
         
-        op_plans = []
+        leader_op_plans = []
+        follower_op_plans = []
         
+        # 第一阶段：主副本的切换
         for idx, virtual_region_id in enumerate(virtual_region_ids):
             actual_region_id = self.route.virtual_region_id_map[virtual_region_id]
             current_leader_store_id = self.route.get_region_primary_store_id(virtual_region_id)
-            
+
             # 按 round-robin 分配目标 store_id
-            target_store_id = store_ids[idx % num_stores]
-            
+            target_leader_store_id = store_ids[idx % num_stores]
+
             # 如果当前 leader 已经是目标 store，则跳过
-            if current_leader_store_id == target_store_id:
+            if current_leader_store_id == target_leader_store_id:
                 continue
             
             # 获取从节点 Store ID 列表
             secondary_store_ids = self.route.get_region_secondary_store_id(virtual_region_id)
-            
+
             # 生成操作计划
             op_plan = self.generate_op_plan(
                 actual_region_id,
                 current_leader_store_id,
                 secondary_store_ids,
-                target_store_id,
+                target_leader_store_id,
                 idx  # 使用索引作为 op_index
             )
             
             if not op_plan.is_empty():
-                op_plans.append(op_plan)
+                leader_op_plans.append(op_plan)
         
-        # 执行操作计划
-        self.do_operator_plan(op_plans, mock)
+        # 执行第一阶段的操作计划
+        self.do_operator_plan(leader_op_plans, mock)
+        print("执行完毕!第一阶段的操作计划")
+        # 第二阶段：从副本的调整
+        for idx, virtual_region_id in enumerate(virtual_region_ids):
+            actual_region_id = self.route.virtual_region_id_map[virtual_region_id]
+            current_leader_store_id = self.route.get_region_primary_store_id(virtual_region_id)
+            current_follower_store_ids = self.route.get_region_secondary_store_id(virtual_region_id)
+            
+            # 按 round-robin 分配目标从副本 store_id
+            target_follower_store_ids = [
+                store_ids[(idx + i + 1) % num_stores] for i in range(len(current_follower_store_ids))
+            ]
+
+            # 生成从副本调整的操作计划
+            follower_op_plan = self.generate_follower_op_plan(
+                actual_region_id,
+                current_follower_store_ids,
+                target_follower_store_ids,
+                idx  # 使用索引作为 op_index
+            )
+            
+            if not follower_op_plan.is_empty():
+                follower_op_plans.append(follower_op_plan)
+        
+        # 执行第二阶段的操作计划
+        self.do_operator_plan(follower_op_plans, mock)
+        print("执行完毕!第二阶段的操作计划")
+
+
+    def generate_follower_op_plan(self, region_id, current_follower_store_ids, target_follower_store_ids, op_index):
+        """
+        生成从副本调整的操作计划。
+        
+        :param region_id: region ID
+        :param current_follower_store_ids: 当前从副本的 store ID 列表
+        :param target_follower_store_ids: 目标从副本的 store ID 列表
+        :param op_index: 操作索引
+        :return: 生成的 OpPlan 对象
+        """
+        op_plan = OpPlan(op_index, region_id, follower_only=True)
+        
+        # 将当前从副本和目标从副本转换为集合
+        current_followers = set(current_follower_store_ids)
+        target_followers = set(target_follower_store_ids)
+        
+        # 如果当前从副本已经在目标位置，则跳过
+        if current_followers == target_followers:
+            return op_plan
+        
+        # 遍历目标从副本，检查是否需要调整
+        for target_store_id in target_follower_store_ids:
+            if target_store_id not in current_followers:
+                # 找到一个需要移除的从副本
+                from_store_id = next(iter(current_followers - target_followers), None)
+                if from_store_id:
+                    # 生成 transfer_peer 操作
+                    transfer_peer_op = {
+                        "operator": "transfer_peer",
+                        "region_id": region_id,
+                        "from_store": from_store_id,
+                        "to_store": target_store_id
+                    }
+                    op_plan.add_op(transfer_peer_op)
+                    # 更新当前从副本集合
+                    current_followers.remove(from_store_id)
+                    current_followers.add(target_store_id)
+        
+        return op_plan
+
 
 
     def do_operator_plan(self, op_plans, mock=False):
