@@ -6,7 +6,7 @@ class TestRoute(unittest.TestCase):
 
     def setUp(self):
         self.route = Route()
-        self.route.update_region_from_pd("http://10.77.70.210:10080/tables/benchbase/usertable/regions")
+        self.route.update_region_from_pd("http://10.77.70.212:10080/tables/benchbase/usertable/regions")
         self.route.update_stores("http://10.77.70.250:12379/pd/api/v1/stores")
 
     # def test_update_region_from_pd(self):
