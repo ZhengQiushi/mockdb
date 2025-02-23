@@ -17,6 +17,7 @@ class SQLInfoServicer(sql_info_pb2_grpc.SQLInfoServiceServicer):
         :param queue_count: 队列的数量
         :param workers_per_queue: 每个队列对应的线程数
         """
+        self.region_size = 10000
         self.graph = graph
         self.queue_count = queue_count
         self.workers_per_queue = workers_per_queue
@@ -33,11 +34,12 @@ class SQLInfoServicer(sql_info_pb2_grpc.SQLInfoServiceServicer):
         :param context: gRPC上下文
         :return: SQLInfoResponse对象，表示处理结果
         """
-        logging.info(f"Received SQL: {request.region_ids}")
+        logging.info(f"Received SQL: {request.keys}")
+        region_ids = [key // self.region_size for key in request.keys]
         # 计算哈希值，这里使用region_ids的哈希值
-        hash_value = hash(tuple(request.region_ids)) % self.queue_count
+        hash_value = hash(tuple(region_ids)) % self.queue_count
         # 将任务放入对应的队列
-        self.task_queues[hash_value].put(request.region_ids)
+        self.task_queues[hash_value].put(region_ids)
         # 返回成功响应
         return sql_info_pb2.SQLInfoResponse(success=True)
 

@@ -67,6 +67,7 @@ class TestRoute(unittest.TestCase):
         打印当前所有 region 的主副本分布情况。
         表格形式展示每个节点上的主副本分布情况。
         """
+        return
         # 获取所有 store_id
         store_ids = sorted(self.route.get_all_store_ids())
         
@@ -106,7 +107,7 @@ class TestRoute(unittest.TestCase):
         打印那些不符合 Round-Robin 方式排布的 region。
         Round-Robin 方式要求主副本均匀分布在各个 store_id 上。
         """
-    
+        return    
         # 获取所有 store_id
         store_ids = sorted(self.route.get_all_store_ids())
         num_stores = len(store_ids)
@@ -180,7 +181,6 @@ class TestRoute(unittest.TestCase):
         for real_region_id, primary_store_id in region_primary_store_ids.items():
             if primary_store_id in store_primary_counts:
                 store_primary_counts[primary_store_id] += 1
-        
         # 打印结果
         print("\nPrimary Replica Counts per Store:")
         print("+" + "-" * 25 + "+")

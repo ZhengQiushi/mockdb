@@ -56,9 +56,13 @@ class Adaptor:
         else:
             # 生成transfer_peer命令
             if len(secondary_store_ids) == 0:
-                # 没有从节点，无法转移，生成空的OpPlan
-                # todo add peer
-                pass
+                # 没有从节点，直接迁移主
+                transfer_master_op = {
+                    "operator": "transfer-region",
+                    "region_id": actual_region_id,
+                    "to_store": target_store_id
+                }
+                op_plan.add_op(transfer_master_op)
             else:
                 from_store_id = secondary_store_ids[0]
                 transfer_peer_op = {
@@ -141,6 +145,9 @@ class Adaptor:
                     from_store = op["from_store"]
                     to_store = op["to_store"]
                     command = f"{self.pd_command_prefix} operator add transfer-peer {region_id} {from_store} {to_store}"
+                elif operator_type == "transfer-region":
+                    to_store = op["to_store"]
+                    command = f"{self.pd_command_prefix} operator add transfer-region {region_id} {to_store} {to_store}"
                 elif operator_type == "add_peer":
                     to_store = op["to_store"]
                     command = f"{self.pd_command_prefix} operator add add-peer {region_id} {to_store}"
